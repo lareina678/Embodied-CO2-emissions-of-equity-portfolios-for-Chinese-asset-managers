@@ -1,0 +1,65 @@
+# %%
+import pandas as pd
+import numpy as np
+import os
+
+# %%
+
+def rename(filename1,filename2,filename3,map):
+    
+    f1 = pd.read_excel(filename1,header = 30) #CSO
+    f2 = pd.read_excel(filename2,sheet_name = 'Sheet1') #FI
+    f3 = pd.read_excel(filename3,header = 30) #MKT
+    
+    Sic = pd.read_excel(map,sheet_name = 'SICCODE')
+    Region = pd.read_excel(map,sheet_name = 'Region')
+    Io = pd.read_excel(map,sheet_name = 'IO')
+    Scope1 = pd.read_excel(map,sheet_name = 'Scope1')
+    Scope2 = pd.read_excel(map,sheet_name = 'Scope2')
+    h = filename1.split('/',7)[-1].split('.')[0]
+    
+    # Format CSO/MKT
+    for i in range(2010,2021):
+        f1 = f1.rename(columns={"Dec-31-{} % Of CSO".format(i):"{}CSO".format(i)})
+        f3 = f3.rename(columns={"Dec-31-{} MarketValue (CNY in mm)".format(i):"{}MKT".format(i)})
+        
+    CSO = pd.DataFrame(columns=["Exchange:Ticker","2010CSO","2011CSO","2012CSO","2013CSO","2014CSO","2015CSO","2016CSO","2017CSO","2018CSO","2019CSO","2020CSO"])
+    CSO['Exchange:Ticker'] = f1["Exchange:Ticker"]
+    MKT = pd.DataFrame(columns=["Exchange:Ticker","2010MKT","2011MKT","2012MKT","2013MKT","2014MKT","2015MKT","2016MKT","2017MKT","2018MKT","2019MKT","2020MKT"])
+    MKT["Exchange:Ticker"] = f3["Exchange:Ticker"]
+        
+    for i in range(2010,2021):
+        if "{}CSO".format(i) in f1.columns:
+            CSO['%sCSO' %i] =  f1['%sCSO' %i]
+        else:
+            CSO['%sCSO' %i] = 0.0
+    CSO = CSO.iloc[0:-4] 
+    for i in range(2010,2021):
+        if "{}MKT".format(i) in f3.columns:
+            MKT['%sMKT' %i] =  f3['%sMKT' %i]
+        else:
+            MKT['%sMKT' %i] = 0.0
+                   
+    # Merge
+    df = pd.merge(CSO,f2,left_on="Exchange:Ticker",right_on="Exchange:Ticker") 
+    df1 = pd.merge(df,Region,left_on='Province',right_on='Province') 
+    df2 = pd.merge(df1,Sic,left_on="SIC CODE",right_on="SIC CODE")
+    df_merge = pd.merge(df2,Io,left_on=['Region','Ind'],right_on=['Region','Ind'])
+    df_merge1 = pd.merge(df_merge,Scope1,left_on=['Region','Ind'],right_on=['Region','Ind'])
+    df_merge2 = pd.merge(df_merge,Scope2,left_on=['Region','Ind'],right_on=['Region','Ind'])
+    merge = pd.merge(df_merge1,df_merge2,left_on='Exchange:Ticker',right_on='Exchange:Ticker')
+    
+    # FI_Scope1/Scope2
+    for year in range(2010,2021):
+        df_merge1['%s_1' %year] = df_merge1['%sCSO' %year] * df_merge1['%sREV' %year] * df_merge1['%s_1' %year] / (df_merge1['%sIO' %year] * 100)
+        df_merge2['%s_2' %year] = df_merge2['%sCSO' %year] * df_merge2['%sREV' %year] * df_merge2['%s_2' %year] / (df_merge2['%sIO' %year] * 100)
+    
+    # WACI/CSOREV   
+    for year in range(2010,2021):    
+        merge["%sWACI" %i]=merge[["%s_1" %i,"%s_2" %i,"%sMKT" %i,"%sREV" %i]].apply(lambda x:(x["%s_1" %i]+x["%s_2" %i])*x["%sMKT" %i] / (x["%sREV" %i]),axis=1)
+        merge["%sCSOREV" %i]=merge[["%sREV" %i,"%sCSO" %i]].apply(lambda x:x["%sREV" %i]*x["%sCSO" %i]/100,axis=1)        
+         
+    with pd.ExcelWriter("/Res/%sRES.xlsx" % h) as writer:
+        df_merge1.to_excel(writer,sheet_name="Scope1",index=False,header=True)
+        df_merge1.to_excel(writer,sheet_name="Scope2",index=False,header=True)
+        merge.to_excel(writer,sheet_name="Intensity",index=False,header=True)
